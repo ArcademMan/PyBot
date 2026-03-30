@@ -24,9 +24,11 @@ else:
 # ── Data files ───────────────────────────────────
 datas = [
     (os.path.join(ASSETS, "icon.png"), "assets"),
-    (os.path.join(ASSETS, "styles"), os.path.join("assets", "styles")),
-    (os.path.join(ASSETS, "icons"), os.path.join("assets", "icons")),
 ]
+for subdir in ("styles", "icons"):
+    path = os.path.join(ASSETS, subdir)
+    if os.path.isdir(path) and os.listdir(path):
+        datas.append((path, os.path.join("assets", subdir)))
 if IS_WINDOWS:
     datas.append((os.path.join(ASSETS, "icon.ico"), "assets"))
 
