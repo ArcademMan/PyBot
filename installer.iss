@@ -1,13 +1,13 @@
 [Setup]
 ; Info applicazione
 AppName=PyBot
-AppVersion=0.1.0
+AppVersion=0.2.0
 AppPublisher=AmMstools
 AppPublisherURL=https://github.com/ArcademMan
 DefaultDirName={autopf}\PyBot
 DefaultGroupName=PyBot
 OutputDir=installer_output
-OutputBaseFilename=PyBot_Setup_0.1.0
+OutputBaseFilename=PyBot_Setup_0.2.0
 Compression=lzma2
 SolidCompression=yes
 SetupIconFile=assets\icon.ico

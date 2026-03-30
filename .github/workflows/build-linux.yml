@@ -1,0 +1,44 @@
+name: Build Linux
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libxkbcommon0 libxcb-xinerama0 libxcb-cursor0 libegl1
+          pip install --upgrade pip
+          pip install ".[dev]"
+
+      - name: Build with PyInstaller
+        run: pyinstaller run.spec
+
+      - name: Package tar.gz
+        run: tar -czf PyBot-linux-x64.tar.gz -C dist PyBot
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: PyBot-linux-x64
+          path: PyBot-linux-x64.tar.gz
+
+      - name: Attach to release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: PyBot-linux-x64.tar.gz
