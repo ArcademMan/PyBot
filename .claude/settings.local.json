@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//c/Program Files \\(x86\\)/Inno Setup 6/**)",
+      "Read(//c/Program Files/Inno Setup 6/**)"
+    ]
+  }
+}
