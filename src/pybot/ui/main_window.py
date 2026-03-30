@@ -13,6 +13,7 @@ from pybot.core.settings import AppSettings
 from pybot.core.hotkey_manager import HotkeyManager
 from pybot.services.macro_service import MacroService
 from pybot.services.playback_service import PlaybackService
+from pybot.services.preview_service import PreviewService
 from pybot.services.recording_service import RecordingService
 from pybot.ui.pages.editor_page import EditorPage
 from pybot.ui.pages.record_page import RecordPage
@@ -22,6 +23,7 @@ from pybot.ui.widgets.animated_stack import AnimatedStack
 from pybot.ui.widgets.sidebar import Sidebar
 from pybot.ui.widgets.title_bar import TitleBar
 from pybot.ui.widgets.toast import show_toast
+from pybot.ui.widgets.preview_overlay import PreviewOverlay
 from pybot.ui.widgets.tray_icon import TrayIcon
 
 
@@ -42,6 +44,8 @@ class MainWindow(QMainWindow):
         self._macro_service = MacroService(parent=self)
         self._recording_service = RecordingService(parent=self)
         self._playback_service = PlaybackService(parent=self)
+        self._preview_service = PreviewService(parent=self)
+        self._preview_overlay = PreviewOverlay()
         self._hotkey_manager = HotkeyManager()
 
         # ── Central widget ────────────────────
@@ -116,6 +120,8 @@ class MainWindow(QMainWindow):
             event.ignore()
         else:
             self._hotkey_manager.stop()
+            self._preview_overlay.clear()
+            self._preview_service.stop()
             event.accept()
 
     # ── Signal wiring ─────────────────────────
@@ -130,8 +136,15 @@ class MainWindow(QMainWindow):
 
         # Playback
         self._record_page.play_requested.connect(self._play_macro)
-        self._record_page.stop_requested.connect(self._playback_service.stop)
+        self._record_page.stop_requested.connect(self._stop_all)
         self._playback_service.state_changed.connect(self._record_page.set_playback_state)
+
+        # Preview
+        self._record_page.preview_requested.connect(self._preview_macro)
+        self._preview_service.show_actions.connect(self._preview_overlay.show_actions)
+        self._preview_service.move_mouse.connect(self._move_cursor)
+        self._preview_service.clear_overlay.connect(self._preview_overlay.clear)
+        self._preview_service.state_changed.connect(self._on_preview_state_changed)
 
         # Macro management
         self._record_page.delete_requested.connect(self._delete_macro)
@@ -140,10 +153,17 @@ class MainWindow(QMainWindow):
         self._record_page.edit_requested.connect(self._open_editor)
         self._macro_service.macro_list_changed.connect(self._refresh_macro_list)
 
+        # Macro hotkeys
+        self._record_page.hotkey_changed.connect(self._set_macro_hotkey)
+
         # Editor
         self._editor_page.macro_modified.connect(self._save_macro)
         self._editor_page.delete_requested.connect(self._delete_macro)
         self._editor_page.rename_requested.connect(self._rename_macro)
+        self._editor_page.duplicate_requested.connect(self._duplicate_macro)
+        self._editor_page.play_requested.connect(self._play_macro)
+        self._editor_page.preview_requested.connect(self._preview_macro)
+        self._editor_page.hotkey_changed.connect(self._set_macro_hotkey)
         self._editor_page.load_requested.connect(self._load_macro_into_editor)
 
         # Settings
@@ -154,7 +174,41 @@ class MainWindow(QMainWindow):
         self._hotkey_manager.register(self._settings.hotkey_record, self._toggle_recording)
         self._hotkey_manager.register(self._settings.hotkey_play, self._play_selected)
         self._hotkey_manager.register(self._settings.hotkey_stop, self._emergency_stop)
+        self._register_macro_hotkeys()
         self._hotkey_manager.start()
+
+    def _register_macro_hotkeys(self) -> None:
+        """Register per-macro hotkeys from all saved macros."""
+        self._hotkey_manager.clear_macro_hotkeys()
+        stop_key = HotkeyManager._to_pynput_format(self._settings.hotkey_stop)
+        for meta in self._macro_service.list_macros():
+            if not meta.hotkey:
+                continue
+            pynput_key = HotkeyManager._to_pynput_format(meta.hotkey)
+            if pynput_key == stop_key:
+                continue  # never shadow the stop key
+            macro_id = meta.id
+            self._hotkey_manager.register_macro_hotkey(
+                meta.hotkey, lambda mid=macro_id: self._play_macro(mid)
+            )
+
+    def _set_macro_hotkey(self, macro_id: str, hotkey: str) -> None:
+        """Validate and persist a per-macro hotkey, then re-register all."""
+        if hotkey:
+            stop_key = HotkeyManager._to_pynput_format(self._settings.hotkey_stop)
+            new_key = HotkeyManager._to_pynput_format(hotkey)
+            if new_key == stop_key:
+                show_toast(self, "Cannot use the stop hotkey", "error")
+                return
+        macro = self._macro_service.load(macro_id)
+        macro.metadata.hotkey = hotkey
+        self._macro_service.save(macro)
+        # Rebuild hotkeys
+        self._hotkey_manager.clear_macro_hotkeys()
+        self._register_macro_hotkeys()
+        self._hotkey_manager.restart()
+        label = f"Hotkey set to {hotkey}" if hotkey else "Hotkey removed"
+        show_toast(self, label, "success")
 
     # ── Actions ───────────────────────────────
     def _toggle_recording(self) -> None:
@@ -187,9 +241,41 @@ class MainWindow(QMainWindow):
         if mid:
             self._play_macro(mid)
 
-    def _emergency_stop(self) -> None:
+    def _preview_macro(self, macro_id: str) -> None:
+        if self._playback_service.is_playing or self._preview_service.is_previewing:
+            return
+        try:
+            macro = self._macro_service.load(macro_id)
+        except Exception:
+            return
+        config = PlaybackConfig(
+            speed_multiplier=self._record_page.speed,
+            loop_count=1,
+            delay_between_loops=0.0,
+        )
+        self._preview_service.preview(macro, config)
+
+    def _on_preview_state_changed(self, state: PlaybackState) -> None:
+        if state == PlaybackState.PLAYING:
+            self._record_page.set_playback_state(PlaybackState.PLAYING)
+        else:
+            self._preview_overlay.clear()
+            self._record_page.set_playback_state(PlaybackState.IDLE)
+
+    @staticmethod
+    def _move_cursor(x: int, y: int) -> None:
+        from pynput.mouse import Controller
+        Controller().position = (x, y)
+
+    def _stop_all(self) -> None:
+        """Stop playback and/or preview."""
         if self._playback_service.is_playing:
             self._playback_service.stop()
+        if self._preview_service.is_previewing:
+            self._preview_service.stop()
+
+    def _emergency_stop(self) -> None:
+        self._stop_all()
         if self._recording_service.is_recording:
             self._recording_service.stop()
 
@@ -234,5 +320,5 @@ class MainWindow(QMainWindow):
         self._settings = settings
         self._hotkey_manager.stop()
         self._hotkey_manager = HotkeyManager()
-        self._setup_hotkeys()
+        self._setup_hotkeys()  # re-registers global + per-macro hotkeys
         show_toast(self, "Settings saved", "success")

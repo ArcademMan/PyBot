@@ -3,7 +3,7 @@
 AppName=PyBot
 AppVersion=0.1.0
 AppPublisher=AmMstools
-AppPublisherURL=https://github.com/AmMstools
+AppPublisherURL=https://github.com/ArcademMan
 DefaultDirName={autopf}\PyBot
 DefaultGroupName=PyBot
 OutputDir=installer_output

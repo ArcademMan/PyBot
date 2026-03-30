@@ -8,8 +8,10 @@ from PySide6.QtWidgets import (
     QFormLayout,
     QHBoxLayout,
     QHeaderView,
+    QInputDialog,
     QLabel,
     QLineEdit,
+    QMenu,
     QPushButton,
     QSpinBox,
     QSplitter,
@@ -26,7 +28,7 @@ import qtawesome as qta
 
 from pybot.core.enums import ActionType
 from pybot.core.models import Action, Macro, MacroMetadata
-from pybot.ui.style import ACCENT, ACCENT_DIM, RED, TEXT, TEXT_SEC
+from pybot.ui.style import ACCENT, ACCENT_DIM, GREEN, ORANGE, RED, TEXT, TEXT_SEC
 from pybot.ui.widgets.glass_card import GlassCard
 
 
@@ -101,6 +103,10 @@ class EditorPage(QWidget):
     macro_modified = Signal(Macro)
     delete_requested = Signal(str)
     rename_requested = Signal(str, str)
+    duplicate_requested = Signal(str)
+    play_requested = Signal(str)
+    preview_requested = Signal(str)
+    hotkey_changed = Signal(str, str)   # macro_id, hotkey
     load_requested = Signal(str)  # macro_id — parent loads and calls load_macro()
 
     def __init__(self, parent=None) -> None:
@@ -150,6 +156,8 @@ class EditorPage(QWidget):
             "  background: rgba(255,255,255,8);"
             "}"
         )
+        self._macro_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self._macro_list.customContextMenuRequested.connect(self._show_context_menu)
         self._macro_list.currentItemChanged.connect(self._on_macro_selected)
         left.addWidget(self._macro_list, 1)
 
@@ -337,8 +345,10 @@ class EditorPage(QWidget):
         self._macro_list.clear()
         select_idx = -1
         for i, m in enumerate(macros):
-            it = QListWidgetItem(m.name)
+            label = f"{m.name}  [{m.hotkey}]" if m.hotkey else m.name
+            it = QListWidgetItem(label)
             it.setData(Qt.ItemDataRole.UserRole, m.id)
+            it.setData(Qt.ItemDataRole.UserRole + 1, m.hotkey or "")
             self._macro_list.addItem(it)
             if m.id == current_id:
                 select_idx = i
@@ -365,6 +375,59 @@ class EditorPage(QWidget):
                 break
 
     # ── Private: macro list ───────────────────────
+    def _show_context_menu(self, pos) -> None:
+        item = self._macro_list.itemAt(pos)
+        if not item:
+            return
+        mid = item.data(Qt.ItemDataRole.UserRole)
+        menu = QMenu(self)
+
+        play_act = menu.addAction(qta.icon("mdi6.play", color=GREEN), "Play")
+        preview_act = menu.addAction(qta.icon("mdi6.eye-outline", color=ORANGE), "Preview")
+        menu.addSeparator()
+        rename_act = menu.addAction("Rename")
+        dup_act = menu.addAction("Duplicate")
+        menu.addSeparator()
+        current_hotkey = item.data(Qt.ItemDataRole.UserRole + 1) or ""
+        if current_hotkey:
+            hotkey_act = menu.addAction(
+                qta.icon("mdi6.keyboard-outline", color=ACCENT),
+                f"Change Hotkey ({current_hotkey})",
+            )
+            unbind_act = menu.addAction("Unbind Hotkey")
+        else:
+            hotkey_act = menu.addAction(
+                qta.icon("mdi6.keyboard-outline", color=ACCENT), "Bind Hotkey"
+            )
+            unbind_act = None
+        menu.addSeparator()
+        del_act = menu.addAction(qta.icon("mdi6.delete-outline", color=RED), "Delete")
+
+        action = menu.exec(self._macro_list.mapToGlobal(pos))
+        if action == play_act:
+            self.play_requested.emit(mid)
+        elif action == preview_act:
+            self.preview_requested.emit(mid)
+        elif action == rename_act:
+            name, ok = QInputDialog.getText(self, "Rename", "New name:", text=item.text())
+            if ok and name.strip():
+                self.rename_requested.emit(mid, name.strip())
+        elif action == dup_act:
+            self.duplicate_requested.emit(mid)
+        elif action == hotkey_act:
+            key, ok = QInputDialog.getText(
+                self, "Bind Hotkey",
+                "Enter hotkey (e.g. ctrl+F1, F7, alt+shift+1):",
+                text=current_hotkey,
+            )
+            if ok:
+                self.hotkey_changed.emit(mid, key.strip())
+        elif unbind_act and action == unbind_act:
+            self.hotkey_changed.emit(mid, "")
+        elif action == del_act:
+            if QMessageBox.question(self, "Delete", f'Delete "{item.text()}"?') == QMessageBox.StandardButton.Yes:
+                self.delete_requested.emit(mid)
+
     def _on_macro_selected(self, current: QListWidgetItem | None, previous) -> None:
         if not current:
             self._stack.setCurrentIndex(0)

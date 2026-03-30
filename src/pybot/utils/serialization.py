@@ -21,6 +21,7 @@ def macro_to_dict(macro: Macro) -> dict:
             "modified_at": macro.metadata.modified_at,
             "description": macro.metadata.description,
             "category": macro.metadata.category,
+            "hotkey": macro.metadata.hotkey,
         },
         "playback_config": {
             "speed_multiplier": macro.playback_config.speed_multiplier,
@@ -43,6 +44,7 @@ def macro_from_dict(data: dict) -> Macro:
             modified_at=md.get("modified_at", ""),
             description=md.get("description", ""),
             category=md.get("category", ""),
+            hotkey=md.get("hotkey", ""),
         ),
         playback_config=PlaybackConfig(
             speed_multiplier=pc.get("speed_multiplier", 1.0),

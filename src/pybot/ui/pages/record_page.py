@@ -22,7 +22,7 @@ import qtawesome as qta
 
 from pybot.core.enums import PlaybackState, RecordingState
 from pybot.core.models import MacroMetadata
-from pybot.ui.style import ACCENT, ACCENT_DIM, GREEN, RED, TEXT, TEXT_SEC
+from pybot.ui.style import ACCENT, ACCENT_DIM, GREEN, ORANGE, RED, TEXT, TEXT_SEC
 from pybot.ui.widgets.glass_card import GlassCard
 from pybot.ui.widgets.state_indicator import StateIndicator
 
@@ -36,6 +36,8 @@ class RecordPage(QWidget):
     rename_requested = Signal(str, str) # macro_id, new_name
     duplicate_requested = Signal(str)   # macro_id
     edit_requested = Signal(str)        # macro_id
+    preview_requested = Signal(str)     # macro_id
+    hotkey_changed = Signal(str, str)   # macro_id, hotkey (empty = unbind)
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -86,6 +88,17 @@ class RecordPage(QWidget):
         self._rec_btn.setFixedHeight(42)
         self._rec_btn.clicked.connect(self.record_toggled.emit)
         btn_row.addWidget(self._rec_btn)
+
+        self._preview_btn = QPushButton(qta.icon("mdi6.eye-outline", color="white"), "  Preview")
+        self._preview_btn.setFixedHeight(42)
+        self._preview_btn.setStyleSheet(
+            f"QPushButton {{ background: {ORANGE}; border: none; border-radius: 8px;"
+            f"  padding: 9px 24px; color: white; font-weight: 600; }}"
+            f"QPushButton:hover {{ background: #FFB74D; }}"
+            f"QPushButton:disabled {{ background: rgba(255,152,0,80); color: rgba(255,255,255,100); }}"
+        )
+        self._preview_btn.clicked.connect(self._on_preview_clicked)
+        btn_row.addWidget(self._preview_btn)
 
         self._play_btn = QPushButton(qta.icon("mdi6.play", color="white"), "  Play")
         self._play_btn.setFixedHeight(42)
@@ -217,8 +230,10 @@ class RecordPage(QWidget):
     def refresh_macro_list(self, macros: list[MacroMetadata]) -> None:
         self._macro_list.clear()
         for m in macros:
-            item = QListWidgetItem(m.name)
+            label = f"{m.name}  [{m.hotkey}]" if m.hotkey else m.name
+            item = QListWidgetItem(label)
             item.setData(Qt.ItemDataRole.UserRole, m.id)
+            item.setData(Qt.ItemDataRole.UserRole + 1, m.hotkey or "")
             self._macro_list.addItem(item)
 
     def set_recording_state(self, state: RecordingState) -> None:
@@ -280,6 +295,11 @@ class RecordPage(QWidget):
             self._selected_label.setText("No macro selected")
             self._selected_label.setStyleSheet(f"color: {TEXT_SEC}; font-size: 12px;")
 
+    def _on_preview_clicked(self) -> None:
+        mid = self.selected_macro_id()
+        if mid:
+            self.preview_requested.emit(mid)
+
     def _on_play_clicked(self) -> None:
         mid = self.selected_macro_id()
         if mid:
@@ -298,16 +318,32 @@ class RecordPage(QWidget):
         menu = QMenu(self)
 
         play_act = menu.addAction(qta.icon("mdi6.play", color=GREEN), "Play")
+        preview_act = menu.addAction(qta.icon("mdi6.eye-outline", color=ORANGE), "Preview")
         edit_act = menu.addAction(qta.icon("mdi6.pencil-outline", color=TEXT), "Edit")
         menu.addSeparator()
         rename_act = menu.addAction("Rename")
         dup_act = menu.addAction("Duplicate")
+        menu.addSeparator()
+        current_hotkey = item.data(Qt.ItemDataRole.UserRole + 1) or ""
+        if current_hotkey:
+            hotkey_act = menu.addAction(
+                qta.icon("mdi6.keyboard-outline", color=ACCENT),
+                f"Change Hotkey ({current_hotkey})",
+            )
+            unbind_act = menu.addAction("Unbind Hotkey")
+        else:
+            hotkey_act = menu.addAction(
+                qta.icon("mdi6.keyboard-outline", color=ACCENT), "Bind Hotkey"
+            )
+            unbind_act = None
         menu.addSeparator()
         del_act = menu.addAction(qta.icon("mdi6.delete-outline", color=RED), "Delete")
 
         action = menu.exec(self._macro_list.mapToGlobal(pos))
         if action == play_act:
             self.play_requested.emit(mid)
+        elif action == preview_act:
+            self.preview_requested.emit(mid)
         elif action == edit_act:
             self.edit_requested.emit(mid)
         elif action == rename_act:
@@ -316,6 +352,16 @@ class RecordPage(QWidget):
                 self.rename_requested.emit(mid, name.strip())
         elif action == dup_act:
             self.duplicate_requested.emit(mid)
+        elif action == hotkey_act:
+            key, ok = QInputDialog.getText(
+                self, "Bind Hotkey",
+                "Enter hotkey (e.g. ctrl+F1, F7, alt+shift+1):",
+                text=current_hotkey,
+            )
+            if ok:
+                self.hotkey_changed.emit(mid, key.strip())
+        elif unbind_act and action == unbind_act:
+            self.hotkey_changed.emit(mid, "")
         elif action == del_act:
             if QMessageBox.question(self, "Delete", f"Delete \"{item.text()}\"?") == QMessageBox.StandardButton.Yes:
                 self.delete_requested.emit(mid)

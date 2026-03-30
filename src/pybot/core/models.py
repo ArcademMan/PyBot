@@ -70,6 +70,7 @@ class MacroMetadata:
     )
     description: str = ""
     category: str = ""
+    hotkey: str = ""  # per-macro launch hotkey, e.g. "ctrl+F1"
 
 
 @dataclass
