@@ -8,7 +8,7 @@ import sys
 IS_WINDOWS = platform.system() == "Windows"
 IS_LINUX = platform.system() == "Linux"
 
-ROOT = os.path.dirname(os.path.abspath(SPECPATH))
+ROOT = os.path.dirname(os.path.abspath(__file__)) if '__file__' in dir() else os.getcwd()
 ASSETS = os.path.join(ROOT, "assets")
 
 # ── Platform-specific settings ───────────────────
